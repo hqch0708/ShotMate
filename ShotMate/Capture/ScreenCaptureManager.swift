@@ -38,11 +38,19 @@ final class ScreenCaptureManager {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.cachedDisplays = nil
-                self?.warmUp()
-            }
+            MainActor.assumeIsolated { self?.invalidateDisplays() }
         }
+        // Cached displays are often stale after sleep, which made the first capture slow or failing.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.invalidateDisplays() }
+        }
+    }
+
+    func invalidateDisplays() {
+        cachedDisplays = nil
+        warmUp()
     }
 
     /// Pre-fetches the display list so the first capture is as fast as later ones.

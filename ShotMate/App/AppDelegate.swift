@@ -2,10 +2,17 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
+    /// Held for the app's lifetime: an idle menu bar app gets App Nap'd, and its timers
+    /// and ScreenCaptureKit calls then wake late, so the shortcut feels a beat behind.
+    private var activity: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Menu bar only: no Dock icon, even when launched outside a bundle (e.g. from Xcode).
         NSApp.setActivationPolicy(.accessory)
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical],
+            reason: "Responsive global screenshot shortcut"
+        )
         MainMenu.install()
 
         let menuBar = MenuBarController(onCapture: { CaptureCoordinator.shared.start() })

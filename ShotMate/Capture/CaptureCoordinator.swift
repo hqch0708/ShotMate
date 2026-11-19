@@ -14,6 +14,12 @@ final class CaptureCoordinator {
     private var overlays: [CaptureOverlayView] = []
     private var previousApp: NSRunningApplication?
     private var screenObserver: NSObjectProtocol?
+    /// Identifies the in-flight capture so a late result from an abandoned one is dropped.
+    private var captureGeneration = 0
+
+    /// Longest a capture may take before it is abandoned, so one stalled
+    /// ScreenCaptureKit call can't leave the shortcut dead until relaunch.
+    private static let captureTimeout: Duration = .seconds(3)
 
     private init() {}
 
@@ -29,17 +35,31 @@ final class CaptureCoordinator {
         HUD.dismiss()
         previousApp = NSWorkspace.shared.frontmostApplication.flatMap { $0 == .current ? nil : $0 }
 
+        captureGeneration += 1
+        let generation = captureGeneration
+
         Task { @MainActor in
             do {
                 let shots = try await ScreenCaptureManager.shared.captureAllScreens()
+                guard generation == captureGeneration, isCapturing else { return }
                 present(shots)
             } catch CaptureError.permissionDenied {
+                guard generation == captureGeneration else { return }
                 isCapturing = false
                 PermissionWindowController.shared.show()
             } catch {
+                guard generation == captureGeneration else { return }
                 isCapturing = false
                 Alerts.show(error)
             }
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.captureTimeout)
+            guard generation == captureGeneration, isCapturing, windows.isEmpty else { return }
+            captureGeneration += 1
+            isCapturing = false
+            ScreenCaptureManager.shared.invalidateDisplays()
         }
     }
 
