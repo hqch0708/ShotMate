@@ -117,10 +117,12 @@ Requires Xcode 16+ or the Swift 5.10+ Command Line Tools.
 ```sh
 git clone https://github.com/shimentosh/ShotMate.git
 cd ShotMate
-Scripts/build-app.sh     # → build/ShotMate.app (universal, ad-hoc signed)
+Scripts/build-app.sh     # → build/ShotMate.app (host architecture, ad-hoc signed)
 Scripts/build-dmg.sh     # → build/ShotMate.dmg
 open build/ShotMate.app
 ```
+
+Local builds target only your Mac's architecture. For a universal (Apple Silicon & Intel) build: `ARCHS="arm64 x86_64" Scripts/build-app.sh`.
 
 You can also open `Package.swift` in Xcode and press **Run**.
 

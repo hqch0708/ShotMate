@@ -3,7 +3,7 @@
 #
 #   Scripts/build-app.sh            # release build
 #   Scripts/build-app.sh debug      # debug build
-#   ARCHS=arm64 Scripts/build-app.sh   # single architecture (default: universal arm64 + x86_64)
+#   ARCHS="arm64 x86_64" Scripts/build-app.sh   # universal build (default: host architecture only)
 #
 # Signing: uses $SHOTMATE_SIGN_IDENTITY if set, otherwise the first "Apple Development"
 # identity in the keychain, otherwise ad-hoc. With ad-hoc signing macOS treats every
@@ -13,7 +13,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${1:-release}"
-ARCHS="${ARCHS:-arm64 x86_64}"
+ARCHS="${ARCHS:-$(uname -m)}"
 APP="$ROOT/build/ShotMate.app"
 ICONSET="$ROOT/build/AppIcon.iconset"
 ICNS="$ROOT/build/AppIcon.icns"
