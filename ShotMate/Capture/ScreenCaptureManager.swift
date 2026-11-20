@@ -30,91 +30,59 @@ enum CaptureError: LocalizedError {
 final class ScreenCaptureManager {
     static let shared = ScreenCaptureManager()
 
-    /// Display list from ScreenCaptureKit. Fetching it costs tens of milliseconds, so
-    /// it is cached and refreshed only when the display configuration changes.
-    private var cachedDisplays: [SCDisplay]?
+    private var warmUpTimer: Timer?
 
     private init() {
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.invalidateDisplays() }
+            MainActor.assumeIsolated { self?.warmUp() }
         }
-        // Cached displays are often stale after sleep, which made the first capture slow or failing.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.invalidateDisplays() }
+            MainActor.assumeIsolated { self?.warmUp() }
         }
     }
 
-    func invalidateDisplays() {
-        cachedDisplays = nil
-        warmUp()
-    }
-
-    /// Pre-fetches the display list so the first capture is as fast as later ones.
+    /// Runs a throwaway capture so the first real one doesn't pay for cold ScreenCaptureKit
+    /// startup. The warm state fades after tens of seconds idle (first capture ~130ms warm
+    /// vs 240-330ms cold), so it repeats on a timer.
     func warmUp() {
         guard ScreenPermission.isGranted else { return }
-        Task { _ = try? await self.displays(forceRefresh: false) }
-    }
-
-    func captureAllScreens() async throws -> [CapturedScreen] {
-        do {
-            return try await captureAllScreens(forceRefresh: false)
-        } catch CaptureError.permissionDenied {
-            throw CaptureError.permissionDenied
-        } catch {
-            // A cached display can go stale (sleep, reconnect); retry once with a fresh list.
-            return try await captureAllScreens(forceRefresh: true)
+        if warmUpTimer == nil {
+            warmUpTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.warmUp() }
+            }
+            warmUpTimer?.tolerance = 3
         }
+        let origin = CGDisplayBounds(CGMainDisplayID()).origin
+        Task { _ = try? await SCScreenshotManager.captureImage(in: CGRect(origin: origin, size: CGSize(width: 2, height: 2))) }
     }
 
-    private func captureAllScreens(forceRefresh: Bool) async throws -> [CapturedScreen] {
-        let displays = try await displays(forceRefresh: forceRefresh)
-        let screens = NSScreen.screens.compactMap { screen -> (NSScreen, SCDisplay)? in
-            guard let id = screen.displayID, let display = displays.first(where: { $0.displayID == id }) else { return nil }
-            return (screen, display)
+    /// Captures by display rect, which skips the SCShareableContent lookup and filter setup
+    /// and so is the fastest ScreenCaptureKit path. It never includes the cursor.
+    func captureAllScreens() async throws -> [CapturedScreen] {
+        let screens = NSScreen.screens.compactMap { screen -> (NSScreen, CGRect)? in
+            screen.displayID.map { (screen, CGDisplayBounds($0)) }
         }
         guard !screens.isEmpty else { throw CaptureError.noDisplays }
 
-        return try await withThrowingTaskGroup(of: CapturedScreen.self) { group in
-            for (screen, display) in screens {
-                let pointSize = screen.frame.size
-                let scale = screen.backingScaleFactor
-                group.addTask {
-                    let filter = SCContentFilter(display: display, excludingWindows: [])
-                    let configuration = SCStreamConfiguration()
-                    configuration.width = Int((pointSize.width * scale).rounded())
-                    configuration.height = Int((pointSize.height * scale).rounded())
-                    configuration.captureResolution = .best
-                    configuration.showsCursor = false
-                    configuration.scalesToFit = false
-                    let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
-                    return CapturedScreen(screen: screen, image: image)
-                }
-            }
-            var results: [CapturedScreen] = []
-            for try await result in group {
-                results.append(result)
-            }
-            return results
-        }
-    }
-
-    private func displays(forceRefresh: Bool) async throws -> [SCDisplay] {
-        if !forceRefresh, let cachedDisplays {
-            return cachedDisplays
-        }
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            cachedDisplays = content.displays
-            return content.displays
-        } catch {
-            if !ScreenPermission.isGranted {
-                throw CaptureError.permissionDenied
+            return try await withThrowingTaskGroup(of: CapturedScreen.self) { group in
+                for (screen, bounds) in screens {
+                    group.addTask {
+                        CapturedScreen(screen: screen, image: try await SCScreenshotManager.captureImage(in: bounds))
+                    }
+                }
+                var results: [CapturedScreen] = []
+                for try await result in group {
+                    results.append(result)
+                }
+                return results
             }
-            throw CaptureError.failed(error)
+        } catch {
+            throw ScreenPermission.isGranted ? CaptureError.failed(error) : CaptureError.permissionDenied
         }
     }
 }

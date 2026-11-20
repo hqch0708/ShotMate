@@ -25,24 +25,17 @@ enum SelectionHandle: CaseIterable {
     }
 
     var cursor: NSCursor {
-        if #available(macOS 15.0, *) {
-            let position: NSCursor.FrameResizePosition = switch self {
-            case .topLeft: .topLeft
-            case .top: .top
-            case .topRight: .topRight
-            case .right: .right
-            case .bottomRight: .bottomRight
-            case .bottom: .bottom
-            case .bottomLeft: .bottomLeft
-            case .left: .left
-            }
-            return .frameResize(position: position, directions: .all)
+        let position: NSCursor.FrameResizePosition = switch self {
+        case .topLeft: .topLeft
+        case .top: .top
+        case .topRight: .topRight
+        case .right: .right
+        case .bottomRight: .bottomRight
+        case .bottom: .bottom
+        case .bottomLeft: .bottomLeft
+        case .left: .left
         }
-        switch self {
-        case .top, .bottom: return .resizeUpDown
-        case .left, .right: return .resizeLeftRight
-        default: return .crosshair
-        }
+        return .frameResize(position: position, directions: .all)
     }
 }
 

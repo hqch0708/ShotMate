@@ -9,7 +9,7 @@
 [![Download for macOS](https://img.shields.io/badge/Download-ShotMate.dmg-5b6cf5?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/shimentosh/ShotMate/releases/latest/download/ShotMate.dmg)
 
 [![Latest release](https://img.shields.io/github/v/release/shimentosh/ShotMate?label=release&color=7a4ff0)](https://github.com/shimentosh/ShotMate/releases/latest)
-[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-111?logo=apple)](#install)
+[![macOS 15.2+](https://img.shields.io/badge/macOS-15.2%2B-111?logo=apple)](#install)
 [![Apple Silicon & Intel](https://img.shields.io/badge/Universal-Apple%20Silicon%20%26%20Intel-444)](#install)
 [![License: MIT](https://img.shields.io/badge/License-MIT-28c840)](LICENSE)
 [![Build](https://github.com/shimentosh/ShotMate/actions/workflows/build.yml/badge.svg)](https://github.com/shimentosh/ShotMate/actions/workflows/build.yml)
@@ -45,7 +45,7 @@ It lives in the menu bar, uses under 1 MB on disk, never uploads anything and ha
 3. When asked, turn on **Screen Recording** for ShotMate, then reopen it.
 4. Press **⇧⌘S** and take your first screenshot.
 
-**Requirements:** macOS 14 Sonoma or later, Apple Silicon or Intel.
+**Requirements:** macOS 15.2 Sequoia or later, Apple Silicon or Intel.
 
 > ShotMate isn't notarized by Apple yet, which is why macOS asks you to confirm the first launch. You can also [build it yourself](#build-from-source) from the source code.
 

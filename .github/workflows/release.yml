@@ -36,4 +36,4 @@ jobs:
             2. Open ShotMate. If macOS can't verify it, go to **System Settings › Privacy & Security** and click **Open Anyway**.
             3. Turn on **Screen Recording** for ShotMate, reopen it, and press **⇧⌘S**.
 
-            Requires macOS 14 Sonoma or later · Universal (Apple Silicon & Intel)
+            Requires macOS 15.2 Sequoia or later · Universal (Apple Silicon & Intel)

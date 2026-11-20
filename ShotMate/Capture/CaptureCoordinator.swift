@@ -59,7 +59,7 @@ final class CaptureCoordinator {
             guard generation == captureGeneration, isCapturing, windows.isEmpty else { return }
             captureGeneration += 1
             isCapturing = false
-            ScreenCaptureManager.shared.invalidateDisplays()
+            ScreenCaptureManager.shared.warmUp()
         }
     }
 
@@ -136,12 +136,11 @@ final class CaptureCoordinator {
             }
         }
 
+        // Show the frozen screens first; activation can lag and must not delay them.
+        windows.forEach { $0.orderFrontRegardless() }
         NSApp.activate(ignoringOtherApps: true)
-        for window in windows where window !== keyWindow {
-            window.orderFrontRegardless()
-        }
         let key = keyWindow ?? windows.first
-        key?.makeKeyAndOrderFront(nil)
+        key?.makeKey()
         if let view = key?.contentView {
             key?.makeFirstResponder(view)
         }

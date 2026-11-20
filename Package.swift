@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ShotMate",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("15.2")],
     products: [
         .executable(name: "ShotMate", targets: ["ShotMate"])
     ],

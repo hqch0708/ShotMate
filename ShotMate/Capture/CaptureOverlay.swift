@@ -23,6 +23,29 @@ final class CaptureOverlayWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 }
 
+/// Shows the frozen screenshot straight from a layer, skipping the NSImage/NSImageView
+/// conversion that added noticeable delay for full-resolution Retina captures.
+private final class FrozenImageView: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func show(_ image: CGImage) {
+        layer?.contents = image
+        layer?.contentsGravity = .resize
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        layer?.contentsScale = window?.backingScaleFactor ?? 2
+    }
+}
+
 /// What the user asked to do with the finished screenshot.
 enum CaptureOutput {
     /// The "After capture" default from settings (Enter / primary button).
@@ -38,7 +61,7 @@ final class CaptureOverlayView: NSView, NSTextFieldDelegate {
 
     private let toolState: AnnotationToolState
     private var selection: SelectionManager
-    private let imageView = NSImageView()
+    private let imageView = FrozenImageView()
     private let canvas = AnnotationCanvas()
     private let chrome = SelectionChromeView()
     private var toolbarHost: NSHostingView<CaptureToolbar>?
@@ -66,8 +89,7 @@ final class CaptureOverlayView: NSView, NSTextFieldDelegate {
         super.init(frame: frame)
         wantsLayer = true
 
-        imageView.image = NSImage(cgImage: image, size: frame.size)
-        imageView.imageScaling = .scaleAxesIndependently
+        imageView.show(image)
         imageView.frame = bounds
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
