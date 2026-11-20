@@ -30,40 +30,12 @@ enum CaptureError: LocalizedError {
 final class ScreenCaptureManager {
     static let shared = ScreenCaptureManager()
 
-    private var warmUpTimer: Timer?
-
-    private init() {
-        NotificationCenter.default.addObserver(
-            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.warmUp() }
-        }
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.warmUp() }
-        }
-    }
-
-    /// Runs a throwaway capture so the first real one doesn't pay for cold ScreenCaptureKit
-    /// startup. The warm state fades after tens of seconds idle (first capture ~130ms warm
-    /// vs 240-330ms cold), so it repeats on a timer.
-    func warmUp() {
-        guard ScreenPermission.isGranted else { return }
-        if warmUpTimer == nil {
-            warmUpTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.warmUp() }
-            }
-            warmUpTimer?.tolerance = 3
-        }
-        let origin = CGDisplayBounds(CGMainDisplayID()).origin
-        Task { _ = try? await SCScreenshotManager.captureImage(in: CGRect(origin: origin, size: CGSize(width: 2, height: 2))) }
-    }
+    private init() {}
 
     /// Captures by display rect, which skips the SCShareableContent lookup and filter setup
     /// and so is the fastest ScreenCaptureKit path. It never includes the cursor.
-    func captureAllScreens() async throws -> [CapturedScreen] {
-        let screens = NSScreen.screens.compactMap { screen -> (NSScreen, CGRect)? in
+    func capture(_ targets: [NSScreen]) async throws -> [CapturedScreen] {
+        let screens = targets.compactMap { screen -> (NSScreen, CGRect)? in
             screen.displayID.map { (screen, CGDisplayBounds($0)) }
         }
         guard !screens.isEmpty else { throw CaptureError.noDisplays }

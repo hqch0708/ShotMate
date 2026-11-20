@@ -3,14 +3,18 @@ import Carbon.HIToolbox
 import Combine
 import SwiftUI
 
-/// Borderless full-screen window covering one display during a capture.
+/// Borderless full-screen window covering one display during a capture. It starts fully
+/// transparent, so it can appear the instant the shortcut fires without showing up in the
+/// screenshot being taken underneath it.
 final class CaptureOverlayWindow: NSWindow {
     init(screen: NSScreen) {
         super.init(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         setFrame(screen.frame, display: false)
         level = .screenSaver
-        isOpaque = true
-        backgroundColor = .black
+        isOpaque = false
+        backgroundColor = .clear
+        // Set explicitly so clicks on the still-transparent window aren't passed through.
+        ignoresMouseEvents = false
         hasShadow = false
         isMovable = false
         isReleasedWhenClosed = false
@@ -21,6 +25,11 @@ final class CaptureOverlayWindow: NSWindow {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { true }
+
+    func becomeOpaque() {
+        isOpaque = true
+        backgroundColor = .black
+    }
 }
 
 /// Shows the frozen screenshot straight from a layer, skipping the NSImage/NSImageView
@@ -55,9 +64,11 @@ enum CaptureOutput {
 }
 
 /// Shows one display's frozen image and handles selection, annotation and keyboard input.
+/// Until the image arrives it draws nothing but already tracks the mouse, so a drag
+/// started right after the shortcut isn't lost.
 final class CaptureOverlayView: NSView, NSTextFieldDelegate {
     weak var coordinator: CaptureCoordinator?
-    let screenImage: CGImage
+    private(set) var screenImage: CGImage?
 
     private let toolState: AnnotationToolState
     private var selection: SelectionManager
@@ -82,14 +93,14 @@ final class CaptureOverlayView: NSView, NSTextFieldDelegate {
     var hasSelection: Bool { selection.rect != nil }
     var hasAnnotations: Bool { canvas.hasAnnotations }
 
-    init(frame: CGRect, image: CGImage, toolState: AnnotationToolState) {
-        screenImage = image
+    init(frame: CGRect, toolState: AnnotationToolState) {
         self.toolState = toolState
         selection = SelectionManager(bounds: CGRect(origin: .zero, size: frame.size))
         super.init(frame: frame)
         wantsLayer = true
+        // Anything drawn now would end up in the screenshot being taken.
+        alphaValue = 0
 
-        imageView.show(image)
         imageView.frame = bounds
         imageView.autoresizingMask = [.width, .height]
         addSubview(imageView)
@@ -113,6 +124,12 @@ final class CaptureOverlayView: NSView, NSTextFieldDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func show(_ image: CGImage) {
+        screenImage = image
+        imageView.show(image)
+        alphaValue = 1
+    }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -422,7 +439,7 @@ final class CaptureOverlayView: NSView, NSTextFieldDelegate {
     /// Renders the selection plus annotations at the display's native pixel density.
     func renderScreenshot() -> RenderedScreenshot? {
         commitTextEditing()
-        guard let rect = selection.rect, rect.width >= 1, rect.height >= 1 else { return nil }
+        guard let screenImage, let rect = selection.rect, rect.width >= 1, rect.height >= 1 else { return nil }
         return ScreenshotRenderer.render(image: screenImage, viewSize: bounds.size, selection: rect, annotations: canvas.annotations)
     }
 

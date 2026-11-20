@@ -28,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerSavedShortcut()
 
         LaunchAtLogin.shared.applyDefaultOnFirstLaunch()
-        ScreenCaptureManager.shared.warmUp()
 
         if !ScreenPermission.isGranted && !ScreenPermission.hasShownOnboarding {
             ScreenPermission.hasShownOnboarding = true

@@ -17,8 +17,11 @@ final class CaptureCoordinator {
     /// Identifies the in-flight capture so a late result from an abandoned one is dropped.
     private var captureGeneration = 0
 
-    /// Longest a capture may take before it is abandoned, so one stalled
-    /// ScreenCaptureKit call can't leave the shortcut dead until relaunch.
+    /// Whether the frozen screenshots have replaced the transparent placeholder overlays.
+    private var isRevealed = false
+
+    /// Longest a capture may take before it is abandoned, so one stalled ScreenCaptureKit
+    /// call can't leave invisible overlays up and the shortcut dead until relaunch.
     private static let captureTimeout: Duration = .seconds(3)
 
     private init() {}
@@ -38,28 +41,32 @@ final class CaptureCoordinator {
         captureGeneration += 1
         let generation = captureGeneration
 
+        // Overlays go up before the capture finishes: ScreenCaptureKit takes 130-300ms, and
+        // waiting for it made the shortcut feel sluggish. They stay transparent until then.
+        let screens = NSScreen.screens.filter { $0.displayID != nil }
+        showOverlays(on: screens)
+
         Task { @MainActor in
             do {
-                let shots = try await ScreenCaptureManager.shared.captureAllScreens()
+                let shots = try await ScreenCaptureManager.shared.capture(screens)
                 guard generation == captureGeneration, isCapturing else { return }
-                present(shots)
+                reveal(shots)
             } catch CaptureError.permissionDenied {
                 guard generation == captureGeneration else { return }
-                isCapturing = false
+                close(restoreFocus: false)
                 PermissionWindowController.shared.show()
             } catch {
                 guard generation == captureGeneration else { return }
-                isCapturing = false
+                close(restoreFocus: false)
                 Alerts.show(error)
             }
         }
 
         Task { @MainActor in
             try? await Task.sleep(for: Self.captureTimeout)
-            guard generation == captureGeneration, isCapturing, windows.isEmpty else { return }
+            guard generation == captureGeneration, isCapturing, !isRevealed else { return }
             captureGeneration += 1
-            isCapturing = false
-            ScreenCaptureManager.shared.warmUp()
+            close(restoreFocus: false)
         }
     }
 
@@ -114,36 +121,20 @@ final class CaptureCoordinator {
 
     // MARK: - Private
 
-    private func present(_ shots: [CapturedScreen]) {
+    private func showOverlays(on screens: [NSScreen]) {
         let toolState = AnnotationToolState()
-        let mouseLocation = NSEvent.mouseLocation
-        var keyWindow: CaptureOverlayWindow?
-
-        for shot in shots {
-            let window = CaptureOverlayWindow(screen: shot.screen)
-            let view = CaptureOverlayView(
-                frame: CGRect(origin: .zero, size: shot.screen.frame.size),
-                image: shot.image,
-                toolState: toolState
-            )
+        for screen in screens {
+            let window = CaptureOverlayWindow(screen: screen)
+            let view = CaptureOverlayView(frame: CGRect(origin: .zero, size: screen.frame.size), toolState: toolState)
             view.coordinator = self
             window.contentView = view
             window.initialFirstResponder = view
             windows.append(window)
             overlays.append(view)
-            if shot.screen.frame.contains(mouseLocation) {
-                keyWindow = window
-            }
         }
-
-        // Show the frozen screens first; activation can lag and must not delay them.
+        // Not activating yet: that would turn the frontmost app's windows inactive before
+        // the screenshot is taken.
         windows.forEach { $0.orderFrontRegardless() }
-        NSApp.activate(ignoringOtherApps: true)
-        let key = keyWindow ?? windows.first
-        key?.makeKey()
-        if let view = key?.contentView {
-            key?.makeFirstResponder(view)
-        }
         NSCursor.crosshair.set()
 
         // Unplugging a monitor mid-capture would leave overlays misaligned.
@@ -151,6 +142,24 @@ final class CaptureCoordinator {
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.cancel() }
+        }
+    }
+
+    private func reveal(_ shots: [CapturedScreen]) {
+        for (window, view) in zip(windows, overlays) {
+            guard let shot = shots.first(where: { $0.screen === window.screen || $0.screen.displayID == window.screen?.displayID }) else { continue }
+            view.show(shot.image)
+            window.becomeOpaque()
+        }
+        isRevealed = true
+
+        NSApp.activate(ignoringOtherApps: true)
+        let mouseLocation = NSEvent.mouseLocation
+        let key = windows.first(where: { $0.frame.contains(mouseLocation) }) ?? windows.first
+        key?.makeKey()
+        if let view = key?.contentView as? CaptureOverlayView {
+            key?.makeFirstResponder(view)
+            view.updateCursor()
         }
     }
 
@@ -181,6 +190,7 @@ final class CaptureCoordinator {
         windows.removeAll()
         overlays.removeAll()
         isCapturing = false
+        isRevealed = false
         NSCursor.arrow.set()
 
         // Hand focus straight back to the app the user was in, ready for ⌘V.
