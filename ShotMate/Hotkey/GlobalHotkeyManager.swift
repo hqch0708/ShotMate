@@ -72,6 +72,7 @@ final class GlobalHotkeyManager {
                 }
                 // Carbon delivers application-target events on the main thread; run now instead of
                 // queuing behind other main-queue work, which added perceptible lag.
+                LatencyLog.logHotkeyDelivery(of: event)
                 manager.onTrigger?()
                 return noErr
             },

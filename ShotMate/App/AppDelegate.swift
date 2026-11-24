@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             reason: "Responsive global screenshot shortcut"
         )
         MainMenu.install()
+        LatencyLog.logLaunch()
 
         let menuBar = MenuBarController(onCapture: { CaptureCoordinator.shared.start() })
         self.menuBar = menuBar

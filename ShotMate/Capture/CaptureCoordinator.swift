@@ -16,6 +16,7 @@ final class CaptureCoordinator {
     private var screenObserver: NSObjectProtocol?
     /// Identifies the in-flight capture so a late result from an abandoned one is dropped.
     private var captureGeneration = 0
+    private var trace = CaptureTrace(tracksIdle: false)
 
     /// Whether the frozen screenshots have replaced the transparent placeholder overlays.
     private var isRevealed = false
@@ -28,6 +29,7 @@ final class CaptureCoordinator {
 
     func start() {
         guard !isCapturing else { return }
+        trace = CaptureTrace()
         guard ScreenPermission.isGranted else {
             PermissionWindowController.shared.show()
             return
@@ -37,6 +39,7 @@ final class CaptureCoordinator {
         willBeginCapture?()
         HUD.dismiss()
         previousApp = NSWorkspace.shared.frontmostApplication.flatMap { $0 == .current ? nil : $0 }
+        trace.mark("prepared")
 
         captureGeneration += 1
         let generation = captureGeneration
@@ -50,6 +53,7 @@ final class CaptureCoordinator {
             do {
                 let shots = try await ScreenCaptureManager.shared.capture(screens)
                 guard generation == captureGeneration, isCapturing else { return }
+                trace.mark("captured")
                 reveal(shots)
             } catch CaptureError.permissionDenied {
                 guard generation == captureGeneration else { return }
@@ -65,6 +69,8 @@ final class CaptureCoordinator {
         Task { @MainActor in
             try? await Task.sleep(for: Self.captureTimeout)
             guard generation == captureGeneration, isCapturing, !isRevealed else { return }
+            trace.mark("timeout")
+            trace.log("timed out")
             captureGeneration += 1
             close(restoreFocus: false)
         }
@@ -132,10 +138,12 @@ final class CaptureCoordinator {
             windows.append(window)
             overlays.append(view)
         }
+        trace.mark("windowsBuilt")
         // Not activating yet: that would turn the frontmost app's windows inactive before
         // the screenshot is taken.
         windows.forEach { $0.orderFrontRegardless() }
         NSCursor.crosshair.set()
+        trace.mark("overlayShown")
 
         // Unplugging a monitor mid-capture would leave overlays misaligned.
         screenObserver = NotificationCenter.default.addObserver(
@@ -152,6 +160,7 @@ final class CaptureCoordinator {
             window.becomeOpaque()
         }
         isRevealed = true
+        trace.mark("frozenShown")
 
         NSApp.activate(ignoringOtherApps: true)
         let mouseLocation = NSEvent.mouseLocation
@@ -161,6 +170,8 @@ final class CaptureCoordinator {
             key?.makeFirstResponder(view)
             view.updateCursor()
         }
+        trace.mark("ready")
+        trace.log("ok")
     }
 
     private func saveWithPanel(_ screenshot: RenderedScreenshot) {
