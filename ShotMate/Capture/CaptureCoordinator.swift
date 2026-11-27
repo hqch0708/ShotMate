@@ -44,17 +44,23 @@ final class CaptureCoordinator {
         captureGeneration += 1
         let generation = captureGeneration
 
+        // The request goes out before any window work and off the main thread: building and
+        // showing full-screen overlays can stall the main thread for hundreds of ms, which
+        // would otherwise delay the capture too.
+        let screens = NSScreen.screens.filter { $0.displayID != nil }
+        let targets = ScreenCaptureManager.targets(for: screens)
+        let capture = Task.detached { try await ScreenCaptureManager.capture(targets) }
+
         // Overlays go up before the capture finishes: ScreenCaptureKit takes 130-300ms, and
         // waiting for it made the shortcut feel sluggish. They stay transparent until then.
-        let screens = NSScreen.screens.filter { $0.displayID != nil }
         showOverlays(on: screens)
 
         Task { @MainActor in
             do {
-                let shots = try await ScreenCaptureManager.shared.capture(screens)
+                let images = try await capture.value
                 guard generation == captureGeneration, isCapturing else { return }
                 trace.mark("captured")
-                reveal(shots)
+                reveal(images)
             } catch CaptureError.permissionDenied {
                 guard generation == captureGeneration else { return }
                 close(restoreFocus: false)
@@ -153,10 +159,10 @@ final class CaptureCoordinator {
         }
     }
 
-    private func reveal(_ shots: [CapturedScreen]) {
+    private func reveal(_ images: [CGDirectDisplayID: CGImage]) {
         for (window, view) in zip(windows, overlays) {
-            guard let shot = shots.first(where: { $0.screen === window.screen || $0.screen.displayID == window.screen?.displayID }) else { continue }
-            view.show(shot.image)
+            guard let image = window.screen?.displayID.flatMap({ images[$0] }) else { continue }
+            view.show(image)
             window.becomeOpaque()
         }
         isRevealed = true

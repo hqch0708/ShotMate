@@ -1,13 +1,6 @@
 import AppKit
 import ScreenCaptureKit
 
-/// One display's frozen contents at the moment the shortcut was pressed.
-struct CapturedScreen {
-    let screen: NSScreen
-    /// Full backing-pixel resolution (e.g. 2× the point size on Retina).
-    let image: CGImage
-}
-
 enum CaptureError: LocalizedError {
     case permissionDenied
     case noDisplays
@@ -26,30 +19,35 @@ enum CaptureError: LocalizedError {
 }
 
 /// Captures every connected display with ScreenCaptureKit at native pixel density.
-@MainActor
-final class ScreenCaptureManager {
-    static let shared = ScreenCaptureManager()
+enum ScreenCaptureManager {
+    /// A display to capture, reduced to Sendable values so the request can start off the main thread.
+    struct Target: Sendable {
+        let displayID: CGDirectDisplayID
+        let bounds: CGRect
+    }
 
-    private init() {}
+    static func targets(for screens: [NSScreen]) -> [Target] {
+        screens.compactMap { screen in
+            screen.displayID.map { Target(displayID: $0, bounds: CGDisplayBounds($0)) }
+        }
+    }
 
     /// Captures by display rect, which skips the SCShareableContent lookup and filter setup
     /// and so is the fastest ScreenCaptureKit path. It never includes the cursor.
-    func capture(_ targets: [NSScreen]) async throws -> [CapturedScreen] {
-        let screens = targets.compactMap { screen -> (NSScreen, CGRect)? in
-            screen.displayID.map { (screen, CGDisplayBounds($0)) }
-        }
-        guard !screens.isEmpty else { throw CaptureError.noDisplays }
+    /// Not main-actor isolated: a busy main thread must not delay the request.
+    static func capture(_ targets: [Target]) async throws -> [CGDirectDisplayID: CGImage] {
+        guard !targets.isEmpty else { throw CaptureError.noDisplays }
 
         do {
-            return try await withThrowingTaskGroup(of: CapturedScreen.self) { group in
-                for (screen, bounds) in screens {
+            return try await withThrowingTaskGroup(of: (CGDirectDisplayID, CGImage).self) { group in
+                for target in targets {
                     group.addTask {
-                        CapturedScreen(screen: screen, image: try await SCScreenshotManager.captureImage(in: bounds))
+                        (target.displayID, try await SCScreenshotManager.captureImage(in: target.bounds))
                     }
                 }
-                var results: [CapturedScreen] = []
-                for try await result in group {
-                    results.append(result)
+                var results: [CGDirectDisplayID: CGImage] = [:]
+                for try await (id, image) in group {
+                    results[id] = image
                 }
                 return results
             }
